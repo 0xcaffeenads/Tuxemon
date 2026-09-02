@@ -2,6 +2,7 @@
 # Copyright (c) 2014-2026 William Edwards <shadowapex@gmail.com>, Benjamin Bean <superman2k5@gmail.com>
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from collections.abc import Callable
@@ -100,9 +101,14 @@ class LocalPygameClient(BaseClient):
             self.set_renderer(map_renderer)
             logger.debug("Renderer reset to MapRenderer.")
 
-    def main(self) -> None:
+    async def main(self) -> None:
         """
         Initiates the main game loop with a fixed timestep.
+
+        This is an async coroutine so it can yield control back to the
+        browser's event loop on each frame when running under pygbag
+        (Emscripten/WebAssembly). On desktop, ``asyncio.sleep(0)`` is a
+        no-op cost-wise, so the same loop works unchanged natively.
         """
         update = self.update
         draw = self.draw
@@ -142,6 +148,10 @@ class LocalPygameClient(BaseClient):
             elif self.state == ClientState.EXITING:
                 self.perform_cleanup()
                 self.state = ClientState.DONE
+
+            # Yield to the browser/event loop once per frame (required by
+            # pygbag on web; essentially free on desktop).
+            await asyncio.sleep(0)
 
     def update(self, dt: float) -> None:
         """Main loop for entire game."""

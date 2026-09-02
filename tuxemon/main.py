@@ -17,7 +17,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-def main(
+async def main(
     config: TuxemonConfig,
     context: DisplayContext,
     load_slot: int | None = None,
@@ -39,7 +39,7 @@ def main(
     if config.collision_map:
         configure_debug_options(client)
 
-    client.main()
+    await client.main()
     pygame.quit()
 
 

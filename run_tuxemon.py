@@ -3,6 +3,7 @@
 # Copyright (c) 2014-2026 William Edwards <shadowapex@gmail.com>, Benjamin Bean <superman2k5@gmail.com>
 from __future__ import annotations
 
+import asyncio
 import logging
 import sys
 from argparse import ArgumentParser, Namespace
@@ -95,6 +96,20 @@ def apply_config_from_args(config: TuxemonConfig, args: Namespace) -> None:
         config.splash = False
 
 
+def apply_web_config(config: TuxemonConfig) -> None:
+    """
+    Adjusts settings for browsers (pygbag/Emscripten builds).
+
+    Enables the on-screen touch joystick/D-pad overlay automatically,
+    since browser players (especially on phones/tablets) have no
+    physical keyboard or gamepad. Desktop and native builds are
+    untouched.
+    """
+    if sys.platform == "emscripten":
+        config.config_model.controller.overlay = True
+        config.config_model.controller.hide_mouse = False
+
+
 def handle_fatal_error(e: Exception) -> None:
     import traceback
 
@@ -122,8 +137,17 @@ def handle_fatal_error(e: Exception) -> None:
     sys.exit(1)
 
 
-def launch_game(argv: list[str] | None = None) -> None:
-    args = parse_args(argv)
+async def launch_game(argv: list[str] | None = None) -> None:
+    # On web (pygbag/Emscripten) there is no argv/CLI, so skip parsing.
+    args = (
+        Namespace(mod=None, slot=None, test_map=None, headless=False)
+        if sys.platform == "emscripten"
+        else parse_args(argv)
+    )
+
+    # Apply web-specific overrides (e.g. touch joystick overlay) to the
+    # global config before the display/mouse cursor is initialized.
+    apply_web_config(CONFIG)
 
     from tuxemon.platform import platform
 
@@ -141,11 +165,12 @@ def launch_game(argv: list[str] | None = None) -> None:
 
     try:
         apply_config_from_args(config, args)
+        apply_web_config(config)
 
         if args.headless:
             tuxemon_main.headless(config=config, context=context)
         else:
-            tuxemon_main.main(
+            await tuxemon_main.main(
                 config=config, context=context, load_slot=args.slot
             )
 
@@ -154,4 +179,4 @@ def launch_game(argv: list[str] | None = None) -> None:
 
 
 if __name__ == "__main__":
-    launch_game()
+    asyncio.run(launch_game())
