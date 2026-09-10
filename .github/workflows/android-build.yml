@@ -1,0 +1,99 @@
+name: Android Build
+
+# Tuxemon/Tuxemon reposundaki buildconfig/build_android.sh scriptinden uyarlanmıştır.
+# p4a (python-for-android) kullanarak APK üretir. Build süresi uzun olabilir (30-60+ dk),
+# çünkü Android SDK/NDK indirilip pygame recipe'i sıfırdan derlenir.
+
+on:
+  push:
+    branches: [ development ]
+  pull_request:
+    branches: [ development ]
+  workflow_dispatch:
+
+jobs:
+  build-android:
+    runs-on: ubuntu-20.04
+    steps:
+      - name: Repoyu çek
+        uses: actions/checkout@v4
+
+      - name: Python kur
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.7'
+
+      - name: Ortam değişkenlerini ayarla
+        run: |
+          echo "ANDROID_BUILD_TOOLS_VERSION=28.0.2" >> "$GITHUB_ENV"
+          echo "ANDROID_TOOLS=commandlinetools-linux-6858069_latest.zip" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$HOME/android_sdk" >> "$GITHUB_ENV"
+          echo "ANDROIDSDK=$HOME/android_sdk" >> "$GITHUB_ENV"
+          echo "ANDROIDAPI=27" >> "$GITHUB_ENV"
+          echo "NDKAPI=21" >> "$GITHUB_ENV"
+          echo "NDKVER=21.4.7075529" >> "$GITHUB_ENV"
+          echo "ANDROIDNDK=$HOME/android_sdk/ndk/21.4.7075529" >> "$GITHUB_ENV"
+
+      - name: AdoptOpenJDK 8 kur (orijinal script gibi eski openjdk'yı kaldırıp ekliyor)
+        run: |
+          sudo apt-get remove -y 'openjdk-*' 'openjre-*' || true
+          wget -qO - https://adoptopenjdk.jfrog.io/adoptopenjdk/api/gpg/key/public | sudo apt-key add -
+          echo "deb https://adoptopenjdk.jfrog.io/adoptopenjdk/deb/ buster main" | sudo tee /etc/apt/sources.list.d/adoptopenjdk.jfrog.io.list
+          sudo apt-get update
+          sudo apt-get install -y adoptopenjdk-8-hotspot
+
+      - name: Build bağımlılıklarını kur
+        run: |
+          sudo dpkg --add-architecture i386
+          sudo apt-get update
+          sudo apt-get install -y build-essential pkg-config python3-dev python3-distutils \
+            python3-venv python3-pip autoconf automake libtool libffi-dev cmake zip unzip git \
+            ccache libssl-dev libc6:i386 libncurses5:i386 libstdc++6:i386 lib32z1 libbz2-1.0:i386
+
+      - name: Android SDK cmdline-tools kur
+        run: |
+          mkdir -p "$ANDROID_SDK_ROOT"
+          mkdir -p "$HOME/.android"
+          cd /tmp
+          wget -q "https://dl.google.com/android/repository/$ANDROID_TOOLS"
+          unzip -o -q "$ANDROID_TOOLS" -d "$ANDROID_SDK_ROOT"
+          mkdir -p "$ANDROID_SDK_ROOT/cmdline-tools/latest"
+          mv "$ANDROID_SDK_ROOT"/cmdline-tools/bin "$ANDROID_SDK_ROOT"/cmdline-tools/lib "$ANDROID_SDK_ROOT/cmdline-tools/latest/" 2>/dev/null || true
+          touch "$HOME/.android/repositories.cfg"
+          echo "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: SDK/NDK bileşenlerini kur
+        run: |
+          yes | sdkmanager --licenses > /dev/null || true
+          sdkmanager --update
+          yes | sdkmanager "platform-tools" > /dev/null
+          yes | sdkmanager "platforms;android-$ANDROIDAPI" > /dev/null
+          yes | sdkmanager "build-tools;$ANDROID_BUILD_TOOLS_VERSION" > /dev/null
+          yes | sdkmanager "ndk;$NDKVER" > /dev/null
+
+      - name: python-for-android (p4a) kur
+        run: |
+          python3 -m pip install -U setuptools wheel Cython
+          python3 -m pip install -U git+https://github.com/pygame/python-for-android.git
+
+      - name: APK'yı derle
+        run: |
+          cp run_tuxemon.py main.py
+          p4a apk --name Tuxemon \
+            --private tuxemon \
+            --version 0.0 \
+            --package=org.tuxemon.tuxemon \
+            --requirements=python3,openssl,pygame,libffi,tuxemon,babel,pytmx,pyscroll,natsort,android \
+            --bootstrap=sdl2 \
+            --orientation=landscape \
+            --permission READ_EXTERNAL_STORAGE \
+            --permission WRITE_EXTERNAL_STORAGE
+          mkdir -p dist/android
+          mv *.apk dist/android/tuxemon-development.apk
+
+      - name: APK'yı artifact olarak yükle
+        uses: actions/upload-artifact@v4
+        with:
+          name: tuxemon-android-apk
+          path: dist/android/tuxemon-development.apk
